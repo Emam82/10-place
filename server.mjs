@@ -32,6 +32,7 @@ const colors = [
 
 const size = 256;
 // place(x, y) := place[x + y * size]
+
 const place = Array(size * size).fill(null);
 for (const [colorIndex, colorValue] of colors.entries()) {
   for (let dx = 0; dx < size; dx++) {
@@ -42,6 +43,10 @@ for (const [colorIndex, colorValue] of colors.entries()) {
 const app = express();
 
 app.use(express.static(path.join(process.cwd(), "client")));
+
+app.get("/colors", (_, res) => {
+  res.json({ colors });
+});
 
 app.get("/*", (_, res) => {
   res.send("Place(holder)");
@@ -59,4 +64,65 @@ server.on("upgrade", (req, socket, head) => {
   wss.handleUpgrade(req, socket, head, (ws) => {
     wss.emit("connection", ws, req);
   });
+});
+
+wss.on("connection", (ws) => {
+  ws.send(JSON.stringify({ type: "initialState", payload: { place } }));
+
+  ws.on("message", (message) => {
+    try {
+      const { type, payload } = JSON.parse(message);
+
+      wss.clients.forEach((client) => {
+        if (client !== ws && client.readyState === WebSocket.OPEN) {
+          client.send(message);
+        }
+      });
+    } catch (error) {
+      console.error("Error parsing message:", error);
+    }
+  });
+});
+const canvas = document.getElementById("canvas");
+const ws = new WebSocket("ws://localhost:5000");
+
+async function drawPalette() {
+  try {
+    const response = await fetch("/colors");
+    const { colors } = await response.json();
+
+    // ... Draw the palette using the fetched colors ...
+
+  } catch (error) {
+    console.error("Error fetching colors:", error);
+  }
+}
+
+ws.onmessage = (event) => {
+  try {
+    const { type, payload } = JSON.parse(event.data);
+
+    switch (type) {
+      case "initialState":
+        drawer.putArray(payload.place);
+        break;
+
+      default:
+        drawer.putPixel(payload.x, payload.y, payload.color);
+        break;
+    }
+  } catch (error) {
+    console.error("Error parsing WebSocket message:", error);
+  }
+};
+
+canvas.addEventListener("click", (event) => {
+  const { offsetX, offsetY } = event;
+
+  const message = JSON.stringify({
+    type: "pixelUpdate",
+    payload: { x: offsetX, y: offsetY, color: selectedColor },
+  });
+
+  ws.send(message);
 });
